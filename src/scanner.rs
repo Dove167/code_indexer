@@ -1,4 +1,5 @@
 use rayon::prelude::*;
+use regex::Regex;
 use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -88,6 +89,53 @@ pub fn infer_file_type(path: &str) -> String {
         return "config".to_string();
     }
 
+    if path_str.contains("/tests/")
+        || path_str.ends_with(".test.js")
+        || path_str.ends_with(".test.ts")
+    {
+        return "test".to_string();
+    }
+
+    if path_str.ends_with("index.js")
+        || path_str.ends_with("index.ts")
+        || path_str.ends_with("main.js")
+    {
+        return "entry".to_string();
+    }
+
+    let parts: Vec<&str> = path_str.split('/').collect();
+    if parts.len() == 2 && !parts[0].starts_with('.') {
+        let filename = parts[1];
+        if filename.ends_with(".js")
+            || filename.ends_with(".ts")
+            || filename.ends_with(".jsx")
+            || filename.ends_with(".tsx")
+        {
+            if filename.starts_with("game")
+                || filename.starts_with("demo")
+                || filename == "index.js"
+                || filename == "main.js"
+            {
+                return "entry".to_string();
+            }
+        }
+    }
+
+    let filename = path_str.split('/').last().unwrap_or("");
+    if filename.ends_with(".js") || filename.ends_with(".ts") {
+        let basename = filename
+            .trim_end_matches(".js")
+            .trim_end_matches(".ts")
+            .trim_end_matches(".jsx")
+            .trim_end_matches(".tsx");
+        if basename.len() > 2
+            && basename.chars().next().unwrap().is_uppercase()
+            && basename.contains(|c: char| c.is_lowercase())
+        {
+            return "class".to_string();
+        }
+    }
+
     "unknown".to_string()
 }
 
@@ -118,6 +166,57 @@ pub fn scan_files(source_dir: &Path) -> Vec<FileInfo> {
             Some(file_info)
         })
         .collect()
+}
+
+pub fn parse_html_script_order(source_dir: &Path) -> Vec<String> {
+    let html_files = ["index.html", "index.htm", "main.html", "main.htm"];
+    let mut script_order = Vec::new();
+
+    for html_name in &html_files {
+        let html_path = source_dir.join(html_name);
+        if html_path.exists() {
+            if let Ok(content) = fs::read_to_string(&html_path) {
+                let script_regex = Regex::new(r#"<script\s+src=["']([^"']+)["']"#).unwrap();
+                for cap in script_regex.captures_iter(&content) {
+                    if let Some(src) = cap.get(1) {
+                        let path = src.as_str().to_string().replace('\\', "/");
+                        if !path.starts_with("http://") && !path.starts_with("https://") {
+                            script_order.push(path);
+                        }
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    script_order
+}
+
+pub fn build_html_dependency_graph(
+    script_order: &[String],
+    file_entities: &mut [crate::FileEntity],
+) {
+    let file_paths: std::collections::HashSet<String> =
+        file_entities.iter().map(|f| f.path.clone()).collect();
+
+    for (i, earlier_file) in script_order.iter().enumerate() {
+        if !file_paths.contains(earlier_file) {
+            continue;
+        }
+
+        for later_file in script_order.iter().skip(i + 1) {
+            if !file_paths.contains(later_file) {
+                continue;
+            }
+
+            if let Some(entity) = file_entities.iter_mut().find(|e| e.path == *earlier_file) {
+                if !entity.imported_by.contains(later_file) {
+                    entity.imported_by.push(later_file.clone());
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

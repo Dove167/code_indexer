@@ -12,7 +12,7 @@ use crate::import_graph::{
 use crate::manifest::ManifestManager;
 use crate::output::{write_compact_toml, write_schema_json};
 use crate::parser::parse_files;
-use crate::scanner::scan_files;
+use crate::scanner::{build_html_dependency_graph, parse_html_script_order, scan_files};
 use crate::tree_sitter_parser::{
     extract_calls, extract_consumed_contexts, extract_exports, extract_provides_context,
 };
@@ -54,8 +54,17 @@ pub fn run_indexer(
     let (functions, components, imports) = parse_files(&paths);
 
     println!("Applying heuristics...");
-    let (file_entities, context_graph, communities) =
+    let (mut file_entities, context_graph, communities) =
         build_file_entities(&files, &functions, &components, &imports, source_dir);
+
+    let html_scripts = parse_html_script_order(source_dir);
+    if !html_scripts.is_empty() {
+        println!(
+            "Building HTML dependency graph from {} scripts...",
+            html_scripts.len()
+        );
+        build_html_dependency_graph(&html_scripts, &mut file_entities);
+    }
 
     println!("Writing TOML output...");
     write_compact_toml(

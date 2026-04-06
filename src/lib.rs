@@ -14,5 +14,8 @@ pub use indexer::{run_indexer, IndexerStats};
 pub use manifest::{ManifestManager, NatoSequence, OutputInfo};
 pub use output::write_rich_toml;
 pub use parser::{parse_file, parse_files};
-pub use scanner::{discover_files, infer_file_type, scan_files};
+pub use scanner::{
+    build_html_dependency_graph, discover_files, infer_file_type, parse_html_script_order,
+    scan_files,
+};
 pub use types::*;

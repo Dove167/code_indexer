@@ -144,69 +144,92 @@ pub fn write_compact_toml(
     landmarks.insert("top_files".to_string(), toml::Value::Array(landmark_arr));
 
     let mut domains: toml::Table = toml::Table::new();
-    let mut admin_files: Vec<&FileEntity> = Vec::new();
-    let mut client_files: Vec<&FileEntity> = Vec::new();
-    let mut shared_files: Vec<&FileEntity> = Vec::new();
 
-    for f in file_entities {
-        if f.path.contains("/admin/") {
-            admin_files.push(f);
-        } else if f.path.contains("/client/") {
-            client_files.push(f);
-        } else if f.path.contains("/shared/") {
-            shared_files.push(f);
+    fn get_top_level_dir(path: &str) -> Option<String> {
+        let parts: Vec<&str> = path.split('/').collect();
+        if parts.len() > 1 && !parts[0].is_empty() && !parts[0].starts_with('.') {
+            Some(parts[0].to_string())
+        } else {
+            None
         }
     }
 
-    fn count_by_type(files: &[&FileEntity], file_type: &str) -> usize {
-        files.iter().filter(|f| f.file_type == file_type).count()
+    fn get_subdirs(files: &[&FileEntity]) -> Vec<String> {
+        let mut subdirs: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for f in files {
+            let parts: Vec<&str> = f.path.split('/').collect();
+            if parts.len() > 2 {
+                subdirs.insert(parts[1].to_string());
+            }
+        }
+        let mut v: Vec<String> = subdirs.into_iter().collect();
+        v.sort();
+        v
     }
 
-    let mut add_domain =
-        |name: &str, files: Vec<&FileEntity>, desc: &str, domains: &mut toml::Table| {
-            let mut domain_tbl = toml::Table::new();
-            domain_tbl.insert(
-                "files".to_string(),
-                toml::Value::Integer(files.len() as i64),
-            );
-            domain_tbl.insert("desc".to_string(), toml::Value::String(desc.to_string()));
-            let hooks = count_by_type(&files, "hook");
-            let components = count_by_type(&files, "component");
-            let pages = count_by_type(&files, "page");
-            let utils = files
-                .iter()
-                .filter(|f| f.path.contains("/utils/") || f.path.contains("/lib/"))
-                .count();
-            let types = files.iter().filter(|f| f.path.contains("/types/")).count();
-            domain_tbl.insert("hooks".to_string(), toml::Value::Integer(hooks as i64));
-            domain_tbl.insert(
-                "components".to_string(),
-                toml::Value::Integer(components as i64),
-            );
-            domain_tbl.insert("pages".to_string(), toml::Value::Integer(pages as i64));
-            domain_tbl.insert("utils".to_string(), toml::Value::Integer(utils as i64));
-            domain_tbl.insert("types".to_string(), toml::Value::Integer(types as i64));
-            domains.insert(name.to_string(), toml::Value::Table(domain_tbl));
-        };
+    fn generate_domain_desc(subdirs: &[String]) -> String {
+        if subdirs.is_empty() {
+            return "Root level files".to_string();
+        }
+        let preview = subdirs
+            .iter()
+            .take(5)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
+        if subdirs.len() > 5 {
+            format!("{}...", preview)
+        } else {
+            preview
+        }
+    }
 
-    add_domain(
-        "admin",
-        admin_files,
-        "Admin portal - appointments, users, strata, documents",
-        &mut domains,
-    );
-    add_domain(
-        "client",
-        client_files,
-        "Client portal - booking, documents, surveys",
-        &mut domains,
-    );
-    add_domain(
-        "shared",
-        shared_files,
-        "Shared components, hooks, utils, types",
-        &mut domains,
-    );
+    let mut domain_map: std::collections::HashMap<String, Vec<&FileEntity>> =
+        std::collections::HashMap::new();
+    for f in file_entities {
+        if let Some(tld) = get_top_level_dir(&f.path) {
+            domain_map.entry(tld).or_default().push(f);
+        }
+    }
+
+    let mut domain_names: Vec<String> = domain_map.keys().cloned().collect();
+    domain_names.sort();
+
+    for name in domain_names {
+        let files = domain_map.remove(&name).unwrap_or_default();
+        let subdirs = get_subdirs(&files);
+
+        let mut domain_tbl = toml::Table::new();
+        domain_tbl.insert(
+            "files".to_string(),
+            toml::Value::Integer(files.len() as i64),
+        );
+        domain_tbl.insert(
+            "desc".to_string(),
+            toml::Value::String(generate_domain_desc(&subdirs)),
+        );
+        let hooks = files.iter().filter(|f| f.file_type == "hook").count();
+        let components = files.iter().filter(|f| f.file_type == "component").count();
+        let pages = files.iter().filter(|f| f.file_type == "page").count();
+        let utils = files
+            .iter()
+            .filter(|f| f.file_type == "utility" || f.file_type == "lib")
+            .count();
+        let types = files
+            .iter()
+            .filter(|f| f.file_type == "unknown" && f.path.contains("/types/"))
+            .count();
+        domain_tbl.insert("hooks".to_string(), toml::Value::Integer(hooks as i64));
+        domain_tbl.insert(
+            "components".to_string(),
+            toml::Value::Integer(components as i64),
+        );
+        domain_tbl.insert("pages".to_string(), toml::Value::Integer(pages as i64));
+        domain_tbl.insert("utils".to_string(), toml::Value::Integer(utils as i64));
+        domain_tbl.insert("types".to_string(), toml::Value::Integer(types as i64));
+        domains.insert(name, toml::Value::Table(domain_tbl));
+    }
+
     landmarks.insert("domains".to_string(), toml::Value::Table(domains));
     tbl.insert("landmarks".to_string(), toml::Value::Table(landmarks));
 

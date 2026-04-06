@@ -236,6 +236,25 @@ fn extract_imports(source: &str, file: &str) -> Vec<ImportInfo> {
         }
     }
 
+    let require_regex =
+        Regex::new(r#"(?:const|let|var)?\s*(?:(\w+)\s*=\s*)?require\s*\(\s*["']([^"']+)["']\s*\)"#)
+            .unwrap();
+    for cap in require_regex.captures_iter(source) {
+        let raw_path = cap
+            .get(2)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
+        let name = cap
+            .get(1)
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_else(|| raw_path.split('/').last().unwrap_or(&raw_path).to_string());
+        imports.push(ImportInfo {
+            file: file.to_string(),
+            import_name: name,
+            import_path: raw_path,
+        });
+    }
+
     imports
 }
 
