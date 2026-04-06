@@ -1,0 +1,15 @@
+# Rust build outputs
+/target/
+Cargo.lock
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+# OS
+.DS_Store
+Thumbs.db
+# Output (regenerate each time)
+table_contents/
+# Debug
+*.pdb
